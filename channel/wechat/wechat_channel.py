@@ -273,16 +273,24 @@ class WechatChannel(Channel):
                 msg.download(mp3_path)
                 # mp3转wav
                 wav_path = os.path.splitext(mp3_path)[0] + '.wav'
-                mp3_to_wav(mp3_path=mp3_path, wav_path=wav_path)
+                try:
+                    mp3_to_wav(mp3_path=mp3_path, wav_path=wav_path)
+                except Exception as e: # 转换失败，直接使用mp3，对于某些api，mp3也可以识别
+                    logger.warning("[WX]mp3 to wav error, use mp3 path. " + str(e))
+                    wav_path = mp3_path
                 # 语音识别
                 reply = super().build_voice_to_text(wav_path)
                 # 删除临时文件
-                os.remove(wav_path)
-                os.remove(mp3_path)
+                try:
+                    os.remove(wav_path)
+                    os.remove(mp3_path)
+                except Exception as e:
+                    logger.warning("[WX]delete temp file error: " + str(e))
+
                 if reply.type != ReplyType.ERROR and reply.type != ReplyType.INFO:
                     content = reply.content  # 语音转文字后，将文字内容作为新的context
                     context.type = ContextType.TEXT
-                    if context["isgroup"]:
+                    if context["isgroup"]: # 群聊
                         # 校验关键字
                         match_prefix = check_prefix(content, conf().get('group_chat_prefix'))
                         match_contain = check_contain(content, conf().get('group_chat_keyword'))
@@ -293,7 +301,11 @@ class WechatChannel(Channel):
                         else:
                             logger.info("[WX]receive voice, checkprefix didn't match")
                             return
-                       
+                    else: # 单聊
+                        match_prefix = check_prefix(content, conf().get('single_chat_prefix'))  
+                        if match_prefix: # 判断如果匹配到自定义前缀，则返回过滤掉前缀+空格后的内容
+                            content = content.replace(match_prefix, '', 1).strip()
+                                               
                     img_match_prefix = check_prefix(content, conf().get('image_create_prefix'))
                     if img_match_prefix:
                         content = content.replace(img_match_prefix, '', 1).strip()
